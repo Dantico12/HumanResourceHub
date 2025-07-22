@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             try {
                 // Check if email exists for other users
-                $stmt = $mysqli->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
+                $stmt = $mysqli->prepare("SELECT id FROM users WHERE email = ? AND employee_id != ?");
                 $stmt->bind_param("ss", $email, $id);
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -120,11 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($password)) {
                         // Update with password
                         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, password=?, role=?, phone=?, address=?, updated_at=NOW() WHERE id=?");
+                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, password=?, role=?, phone=?, address=?, updated_at=NOW() WHERE employe_id=?");
                         $stmt->bind_param("ssssssss", $first_name, $last_name, $email, $hashedPassword, $role, $phone, $address, $id);
                     } else {
                         // Update without password
-                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, role=?, phone=?, address=?, updated_at=NOW() WHERE id=?");
+                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, role=?, phone=?, address=?, updated_at=NOW() WHERE employee_id=?");
                         $stmt->bind_param("sssssss", $first_name, $last_name, $email, $role, $phone, $address, $id);
                     }
                     $stmt->execute();
@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($id == $userId) {
                 $error = 'You cannot delete your own account.';
             } else {
-                $stmt = $mysqli->prepare("DELETE FROM users WHERE id = ?");
+                $stmt = $mysqli->prepare("DELETE FROM users WHERE mployee_id = ?");
                 $stmt->bind_param("s", $id);
                 if ($stmt->execute()) {
                     redirectWithMessage('users.php', 'User deleted successfully!', 'success');
@@ -167,6 +167,32 @@ $users = $result->fetch_all(MYSQLI_ASSOC);
 </head>
 <body>
     <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-brand">
+                <h1>HR System</h1>
+                <p>Management Portal</p>
+            </div>
+            <nav class="nav">
+                <ul>
+                    <li><a href="dashboard.php">Dashboard</a></li>
+                    <li><a href="employees.php">Employees</a></li>
+                    <?php if (hasPermission('hr_manager')): ?>
+                    <li><a href="departments.php">Departments</a></li>
+                    <?php endif; ?>
+                    <?php if (hasPermission('super_admin')): ?>
+                    <li><a href="users.php" class="active">Users</a></li>
+                    <?php endif; ?>
+                    <?php if (hasPermission('hr_manager')): ?>
+                    <li><a href="reports.php">Reports</a></li>
+                    <?php endif; ?>
+                    <?php if (hasPermission('hr_manager')|| hasPermission('super_admin')||hasPermission('dept_head')): ?>
+                    <li><a href="leave_management.php">Leave Management</a></li>
+                    <?php endif; ?>
+                </ul>
+            </nav>
+        </div>
+
         <div class="main-content">
             <div class="header">
                 <h1>User Management</h1>
@@ -175,16 +201,6 @@ $users = $result->fetch_all(MYSQLI_ASSOC);
                     <span class="badge badge-info"><?php echo ucwords(str_replace('_', ' ', $user['role'])); ?></span>
                     <a href="logout.php" class="btn btn-secondary">Logout</a>
                 </div>
-            </div>
-            
-            <div class="nav">
-                <ul>
-                    <li><a href="dashboard.php">Dashboard</a></li>
-                    <li><a href="employees.php">Employees</a></li>
-                    <li><a href="departments.php">Departments</a></li>
-                    <li><a href="users.php" class="active">Users</a></li>
-                    <li><a href="reports.php">Reports</a></li>
-                </ul>
             </div>
             
             <div class="content">

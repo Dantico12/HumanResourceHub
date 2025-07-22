@@ -192,17 +192,13 @@ try {
 </head>
 <body>
     <div class="container">
-        <div class="main-content">
-            <div class="header">
-                <h1>Department Management</h1>
-                <div class="user-info">
-                    <span>Welcome, <?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></span>
-                    <span class="badge badge-info"><?php echo ucwords(str_replace('_', ' ', $user['role'])); ?></span>
-                    <a href="logout.php" class="btn btn-secondary">Logout</a>
-                </div>
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-brand">
+                <h1>HR System</h1>
+                <p>Management Portal</p>
             </div>
-            
-            <div class="nav">
+            <nav class="nav">
                 <ul>
                     <li><a href="dashboard.php">Dashboard</a></li>
                     <li><a href="employees.php">Employees</a></li>
@@ -212,10 +208,24 @@ try {
                     <?php if (hasPermission('super_admin')): ?>
                     <li><a href="users.php">Users</a></li>
                     <?php endif; ?>
-                    <?php if (hasPermission('hr_manager')): ?>
+                    <?php if (hasPermission('hr_manager')|| hasPermission('super_admin')): ?>
                     <li><a href="reports.php">Reports</a></li>
                     <?php endif; ?>
+                    <?php if (hasPermission('hr_manager')|| hasPermission('super_admin')||hasPermission('dept_head')): ?>
+                    <li><a href="leave_management.php">Leave Management</a></li>
+                    <?php endif; ?>
                 </ul>
+            </nav>
+        </div>
+
+        <div class="main-content">
+            <div class="header">
+                <h1>Department Management</h1>
+                <div class="user-info">
+                    <span>Welcome, <?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></span>
+                    <span class="badge badge-info"><?php echo ucwords(str_replace('_', ' ', $user['role'])); ?></span>
+                    <a href="logout.php" class="btn btn-secondary">Logout</a>
+                </div>
             </div>
             
             <div class="content">
@@ -233,7 +243,7 @@ try {
                 <div style="margin-bottom: 40px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                         <h2>Departments (<?php echo count($departments); ?>)</h2>
-                        <?php if (hasPermission('hr_manager')): ?>
+                        <?php if (hasPermission('hr_manager')|| hasPermission('super_admin')): ?>
                             <button onclick="showAddDepartmentModal()" class="btn btn-success">Add New Department</button>
                         <?php endif; ?>
                     </div>

@@ -116,7 +116,7 @@ if (isset($_SESSION['flash_message'])) {
 <body>
     <div class="login-container">
         <div class="login-box">
-            <h2>HR Management System</h2>
+            <h2>MUWASCO HR Management System</h2>
             <p class="text-center" style="color: #666; margin-bottom: 30px;">Please sign in to your account</p>
             
             <?php if ($error): ?>

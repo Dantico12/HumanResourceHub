@@ -25,6 +25,7 @@ function hasPermission($requiredRole) {
     
     // Permission hierarchy
     $roles = [
+        'section_head'=>4,
         'super_admin' => 3,
         'hr_manager' => 2,
         'dept_head' => 1,
@@ -104,15 +105,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hire_date = $_POST['hire_date'];
             $designation = sanitizeInput($_POST['designation']) ?: 'Employee';
             $department_id = $_POST['department_id'];
-            $section_id = $_POST['section_id'];
+            $section_id = !empty($_POST['section_id']) ? $_POST['section_id'] : null;
             $employee_type = $_POST['employee_type'];
             $employment_type = $_POST['employment_type'] ?: 'permanent';
 
             try {
-                $full_name = trim($first_name . ' ' . $last_name);
-                $stmt = $conn->prepare("INSERT INTO employees (employee_id, first_name,last_name, national_id, phone, email, date_of_birth, designation, department_id, section_id, employee_type, employment_type,address, hire_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                // Start transaction
+                $conn->begin_transaction();
                 
-                // Bind parameters
+                // Insert employee record
+                $full_name = trim($first_name . ' ' . $last_name);
+                $stmt = $conn->prepare("INSERT INTO employees (employee_id, first_name, last_name, national_id, phone, email, date_of_birth, designation, department_id, section_id, employee_type, employment_type, address, hire_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->bind_param("sssssssiisssss", 
                     $employee_id, 
                     $first_name, 
@@ -131,8 +134,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
                 
                 $stmt->execute();
-                redirectWithMessage('employees.php', 'Employee added successfully!', 'success');
+                $new_employee_id = $conn->insert_id;
+                
+                // Determine user role based on employee type
+                $user_role = 'employee'; // default role
+                switch($employee_type) {
+                    case 'managing_director':
+                    case 'bod_chairman':
+                        $user_role = 'super_admin';
+                        break;
+                    case 'dept_head':
+                        $user_role = 'dept_head';
+                        break;
+                    case 'manager':
+                        $user_role = 'hr_manager';
+                        break;
+                    case 'section_head':
+                        $user_role = 'section_head';
+                        break;
+                    default:
+                        $user_role = 'employee';
+                        break;
+                }
+                
+                // Create hashed password using employee_id
+                $hashed_password = password_hash($employee_id, PASSWORD_DEFAULT);
+                
+                // Insert user record
+                $user_stmt = $conn->prepare("INSERT INTO users (email, first_name, last_name, password, role, phone, address, employee_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+                
+                $user_stmt->bind_param("ssssssss", 
+                    $email, 
+                    $first_name, 
+                    $last_name, 
+                    $hashed_password, 
+                    $user_role, 
+                    $phone, 
+                    $address, 
+                    $employee_id
+                );
+                
+                $user_stmt->execute();
+                
+                // Commit transaction
+                $conn->commit();
+                
+                redirectWithMessage('employees.php', 'Employee and user account created successfully! Default password is the employee ID.', 'success');
             } catch (Exception $e) {
+                // Rollback transaction on error
+                $conn->rollback();
                 $error = 'Error adding employee: ' . $e->getMessage();
             }
         } elseif ($action === 'edit' && hasPermission('hr_manager')) {
@@ -148,12 +198,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hire_date = $_POST['hire_date'];
             $designation = sanitizeInput($_POST['designation']);
             $department_id = $_POST['department_id'];
-            $section_id = $_POST['section_id'];
+            $section_id = !empty($_POST['section_id']) ? $_POST['section_id'] : null;
             $employee_type = $_POST['employee_type'];
             $employment_type = $_POST['employment_type'];
             $employee_status = $_POST['employee_status'];
             
             try {
+                // Start transaction
+                $conn->begin_transaction();
+                
+                // Get current employee_id for user update
+                $current_emp_stmt = $conn->prepare("SELECT employee_id FROM employees WHERE id = ?");
+                $current_emp_stmt->bind_param("i", $id);
+                $current_emp_stmt->execute();
+                $current_emp_result = $current_emp_stmt->get_result();
+                $current_employee = $current_emp_result->fetch_assoc();
+                $old_employee_id = $current_employee['employee_id'];
+                
+                // Update employee record
                 $full_name = trim($first_name . ' ' . $last_name);
                 $stmt = $conn->prepare("UPDATE employees SET employee_id=?, first_name=?, last_name=?, national_id=?, email=?, phone=?, address=?, date_of_birth=?, hire_date=?, designation=?, department_id=?, section_id=?, employee_type=?, employment_type=?, employee_status=?, updated_at=NOW() WHERE id=?");
                 
@@ -178,8 +240,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
                 
                 $stmt->execute();
-                redirectWithMessage('employees.php', 'Employee updated successfully!', 'success');
+                
+                // Determine user role based on employee type
+                $user_role = 'employee'; // default role
+                switch($employee_type) {
+                    case 'managing_director':
+                    case 'bod_chairman':
+                        $user_role = 'super_admin';
+                        break;
+                    case 'dept_head':
+                        $user_role = 'dept_head';
+                        break;
+                    case 'manager':
+                        $user_role = 'hr_manager';
+                        break;
+                    case 'section_head':
+                        $user_role = 'section_head';
+                        break;
+                    default:
+                        $user_role = 'employee';
+                        break;
+                }
+                
+                // Update corresponding user record
+                $user_update_stmt = $conn->prepare("UPDATE users SET email=?, first_name=?, last_name=?, role=?, phone=?, address=?, employee_id=?, updated_at=NOW() WHERE employee_id=?");
+                
+                $user_update_stmt->bind_param("ssssssss", 
+                    $email, 
+                    $first_name, 
+                    $last_name, 
+                    $user_role, 
+                    $phone, 
+                    $address, 
+                    $employee_id,
+                    $old_employee_id
+                );
+                
+                $user_update_stmt->execute();
+                
+                // Commit transaction
+                $conn->commit();
+                
+                redirectWithMessage('employees.php', 'Employee and user account updated successfully!', 'success');
             } catch (Exception $e) {
+                // Rollback transaction on error
+                $conn->rollback();
                 $error = 'Error updating employee: ' . $e->getMessage();
             }
         }
@@ -258,6 +363,16 @@ $employees = $result->fetch_all(MYSQLI_ASSOC);
 // Get departments and sections for filters and forms
 $departments = $conn->query("SELECT * FROM departments ORDER BY name")->fetch_all(MYSQLI_ASSOC);
 $sections = $conn->query("SELECT s.*, d.name as department_name FROM sections s LEFT JOIN departments d ON s.department_id = d.id ORDER BY d.name, s.name")->fetch_all(MYSQLI_ASSOC);
+
+// Leave applications query
+$applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name, 
+                      lt.name as leave_type_name, d.name as department_name, s.name as section_name
+                      FROM leave_applications la
+                      JOIN employees e ON la.employee_id = e.id
+                      JOIN leave_types lt ON la.leave_type_id = lt.id
+                      LEFT JOIN departments d ON e.department_id = d.id
+                      LEFT JOIN sections s ON e.section_id = s.id
+                      ORDER BY la.applied_at DESC";
 ?>
 
 <!DOCTYPE html>
@@ -270,17 +385,13 @@ $sections = $conn->query("SELECT s.*, d.name as department_name FROM sections s 
 </head>
 <body>
     <div class="container">
-        <div class="main-content">
-            <div class="header">
-                <h1>Employee Management</h1>
-                <div class="user-info">
-                    <span>Welcome, <?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></span>
-                    <span class="badge badge-info"><?php echo ucwords(str_replace('_', ' ', $user['role'])); ?></span>
-                    <a href="logout.php" class="btn btn-secondary">Logout</a>
-                </div>
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-brand">
+                <h1>HR System</h1>
+                <p>Management Portal</p>
             </div>
-            
-            <div class="nav">
+            <nav class="nav">
                 <ul>
                     <li><a href="dashboard.php">Dashboard</a></li>
                     <li><a href="employees.php" class="active">Employees</a></li>
@@ -293,7 +404,23 @@ $sections = $conn->query("SELECT s.*, d.name as department_name FROM sections s 
                     <?php if (hasPermission('hr_manager')): ?>
                     <li><a href="reports.php">Reports</a></li>
                     <?php endif; ?>
+                    <?php if (hasPermission('hr_manager')|| hasPermission('super_admin')||hasPermission('dept_head')|| hasPermission('officer')): ?>
+                    <li><a href="leave_management.php">Leave Management</a></li>
+                    <?php endif; ?>
                 </ul>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="header">
+                <button class="sidebar-toggle">☰</button>
+                <h1>Employee Management</h1>
+                <div class="user-info">
+                    <span>Welcome, <?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></span>
+                    <span class="badge badge-info"><?php echo ucwords(str_replace('_', ' ', $user['role'])); ?></span>
+                    <a href="logout.php" class="btn btn-secondary btn-sm">Logout</a>
+                </div>
             </div>
             
             <div class="content">
@@ -343,9 +470,10 @@ $sections = $conn->query("SELECT s.*, d.name as department_name FROM sections s 
                                     <option value="officer" <?php echo $type_filter === 'officer' ? 'selected' : ''; ?>>Officer</option>
                                     <option value="section_head" <?php echo $type_filter === 'section_head' ? 'selected' : ''; ?>>Section Head</option>
                                     <option value="manager" <?php echo $type_filter === 'manager' ? 'selected' : ''; ?>>Manager</option>
+                                    <option value="manager" <?php echo $type_filter === 'hr_manager' ? 'selected' : ''; ?>>Human Resource Manager</option>
                                     <option value="dept_head" <?php echo $type_filter === 'dept_head' ? 'selected' : ''; ?>>Department Head</option>
                                     <option value="managing_director" <?php echo $type_filter === 'managing_director' ? 'selected' : ''; ?>>Managing Director</option>
-                                    <option value="bod_chairman" <?php echo $type_filter === 'bod_chairman' ? 'selected' : ''; ?>>BOD Chairman</option>
+                                    <option value="bod_chairman" <?php echo $type_filter === 'bod_chairman' ? 'selected' : ''; ?>>BOD Chairmann</option>
                                 </select>
                             </div>
                             <div class="form-group">
