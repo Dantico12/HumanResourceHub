@@ -22,19 +22,18 @@ $user = [
 // Permission check function
 function hasPermission($requiredRole) {
     $userRole = $_SESSION['user_role'] ?? 'guest';
-    
+
     // Permission hierarchy
     $roles = [
-        'section_head'=>4,
         'super_admin' => 3,
         'hr_manager' => 2,
         'dept_head' => 1,
         'employee' => 0
     ];
-    
+
     $userLevel = $roles[$userRole] ?? 0;
     $requiredLevel = $roles[$requiredRole] ?? 0;
-    
+
     return $userLevel >= $requiredLevel;
 }
 
@@ -92,7 +91,7 @@ function sanitizeInput($data) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         $action = $_POST['action'];
-        
+
         if ($action === 'add' && hasPermission('hr_manager')) {
             $employee_id = sanitizeInput($_POST['employee_id']);
             $first_name = sanitizeInput($_POST['first_name']);
@@ -105,17 +104,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hire_date = $_POST['hire_date'];
             $designation = sanitizeInput($_POST['designation']) ?: 'Employee';
             $department_id = $_POST['department_id'];
-            $section_id = !empty($_POST['section_id']) ? $_POST['section_id'] : null;
+            $section_id = $_POST['section_id'];
             $employee_type = $_POST['employee_type'];
             $employment_type = $_POST['employment_type'] ?: 'permanent';
 
             try {
                 // Start transaction
                 $conn->begin_transaction();
-                
+
                 // Insert employee record
                 $full_name = trim($first_name . ' ' . $last_name);
-                $stmt = $conn->prepare("INSERT INTO employees (employee_id, first_name, last_name, national_id, phone, email, date_of_birth, designation, department_id, section_id, employee_type, employment_type, address, hire_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $conn->prepare("INSERT INTO employees (employee_id, first_name,last_name, national_id, phone, email, date_of_birth, designation, department_id, section_id, employee_type, employment_type,address, hire_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                // Bind parameters
                 $stmt->bind_param("sssssssiisssss", 
                     $employee_id, 
                     $first_name, 
@@ -132,10 +133,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $address, 
                     $hire_date
                 );
-                
+
                 $stmt->execute();
                 $new_employee_id = $conn->insert_id;
-                
+
+                if (!$new_employee_id) {
+                    throw new Exception("Failed to retrieve insert ID. Ensure the query inserted a record.");
+                }
+
+                // Update department or section head assignments
+                if ($employee_type === 'dept_head' && $department_id) {
+                    $updateDeptStmt = $conn->prepare("UPDATE departments SET emp_id = ? WHERE id = ?");
+                    $updateDeptStmt->bind_param("si", $employee_id, $department_id);
+                    $updateDeptStmt->execute();
+                } elseif ($employee_type === 'section_head' && $section_id) {
+                    $updateSectStmt = $conn->prepare("UPDATE sections SET emp_id = ? WHERE id = ?");
+                    $updateSectStmt->bind_param("si", $employee_id, $section_id);
+                    $updateSectStmt->execute();
+                }
+
                 // Determine user role based on employee type
                 $user_role = 'employee'; // default role
                 switch($employee_type) {
@@ -149,20 +165,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     case 'manager':
                         $user_role = 'hr_manager';
                         break;
-                    case 'section_head':
-                        $user_role = 'section_head';
-                        break;
                     default:
                         $user_role = 'employee';
                         break;
                 }
-                
+
                 // Create hashed password using employee_id
                 $hashed_password = password_hash($employee_id, PASSWORD_DEFAULT);
-                
+
                 // Insert user record
                 $user_stmt = $conn->prepare("INSERT INTO users (email, first_name, last_name, password, role, phone, address, employee_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
-                
+
                 $user_stmt->bind_param("ssssssss", 
                     $email, 
                     $first_name, 
@@ -173,12 +186,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $address, 
                     $employee_id
                 );
-                
+
                 $user_stmt->execute();
-                
+
                 // Commit transaction
                 $conn->commit();
-                
+
                 redirectWithMessage('employees.php', 'Employee and user account created successfully! Default password is the employee ID.', 'success');
             } catch (Exception $e) {
                 // Rollback transaction on error
@@ -198,15 +211,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hire_date = $_POST['hire_date'];
             $designation = sanitizeInput($_POST['designation']);
             $department_id = $_POST['department_id'];
-            $section_id = !empty($_POST['section_id']) ? $_POST['section_id'] : null;
+            $section_id = $_POST['section_id'];
             $employee_type = $_POST['employee_type'];
             $employment_type = $_POST['employment_type'];
             $employee_status = $_POST['employee_status'];
-            
+
             try {
                 // Start transaction
                 $conn->begin_transaction();
-                
+
                 // Get current employee_id for user update
                 $current_emp_stmt = $conn->prepare("SELECT employee_id FROM employees WHERE id = ?");
                 $current_emp_stmt->bind_param("i", $id);
@@ -214,11 +227,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $current_emp_result = $current_emp_stmt->get_result();
                 $current_employee = $current_emp_result->fetch_assoc();
                 $old_employee_id = $current_employee['employee_id'];
-                
+
                 // Update employee record
                 $full_name = trim($first_name . ' ' . $last_name);
                 $stmt = $conn->prepare("UPDATE employees SET employee_id=?, first_name=?, last_name=?, national_id=?, email=?, phone=?, address=?, date_of_birth=?, hire_date=?, designation=?, department_id=?, section_id=?, employee_type=?, employment_type=?, employee_status=?, updated_at=NOW() WHERE id=?");
-                
+
                 // Bind parameters
                 $stmt->bind_param("ssssssssssiisssi", 
                     $employee_id, 
@@ -238,9 +251,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $employee_status, 
                     $id
                 );
-                
+
                 $stmt->execute();
-                
+
                 // Determine user role based on employee type
                 $user_role = 'employee'; // default role
                 switch($employee_type) {
@@ -254,17 +267,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     case 'manager':
                         $user_role = 'hr_manager';
                         break;
-                    case 'section_head':
-                        $user_role = 'section_head';
-                        break;
                     default:
                         $user_role = 'employee';
                         break;
                 }
-                
+
                 // Update corresponding user record
                 $user_update_stmt = $conn->prepare("UPDATE users SET email=?, first_name=?, last_name=?, role=?, phone=?, address=?, employee_id=?, updated_at=NOW() WHERE employee_id=?");
-                
+
                 $user_update_stmt->bind_param("ssssssss", 
                     $email, 
                     $first_name, 
@@ -275,12 +285,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $employee_id,
                     $old_employee_id
                 );
-                
+
                 $user_update_stmt->execute();
-                
+
                 // Commit transaction
                 $conn->commit();
-                
+
                 redirectWithMessage('employees.php', 'Employee and user account updated successfully!', 'success');
             } catch (Exception $e) {
                 // Rollback transaction on error
@@ -363,16 +373,6 @@ $employees = $result->fetch_all(MYSQLI_ASSOC);
 // Get departments and sections for filters and forms
 $departments = $conn->query("SELECT * FROM departments ORDER BY name")->fetch_all(MYSQLI_ASSOC);
 $sections = $conn->query("SELECT s.*, d.name as department_name FROM sections s LEFT JOIN departments d ON s.department_id = d.id ORDER BY d.name, s.name")->fetch_all(MYSQLI_ASSOC);
-
-// Leave applications query
-$applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name, 
-                      lt.name as leave_type_name, d.name as department_name, s.name as section_name
-                      FROM leave_applications la
-                      JOIN employees e ON la.employee_id = e.id
-                      JOIN leave_types lt ON la.leave_type_id = lt.id
-                      LEFT JOIN departments d ON e.department_id = d.id
-                      LEFT JOIN sections s ON e.section_id = s.id
-                      ORDER BY la.applied_at DESC";
 ?>
 
 <!DOCTYPE html>
@@ -404,9 +404,6 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                     <?php if (hasPermission('hr_manager')): ?>
                     <li><a href="reports.php">Reports</a></li>
                     <?php endif; ?>
-                    <?php if (hasPermission('hr_manager')|| hasPermission('super_admin')||hasPermission('dept_head')|| hasPermission('officer')): ?>
-                    <li><a href="leave_management.php">Leave Management</a></li>
-                    <?php endif; ?>
                 </ul>
             </nav>
         </div>
@@ -422,25 +419,25 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                     <a href="logout.php" class="btn btn-secondary btn-sm">Logout</a>
                 </div>
             </div>
-            
+
             <div class="content">
                 <?php $flash = getFlashMessage(); if ($flash): ?>
                     <div class="alert alert-<?php echo $flash['type']; ?>">
                         <?php echo htmlspecialchars($flash['message']); ?>
                     </div>
                 <?php endif; ?>
-                
+
                 <?php if (isset($error)): ?>
                     <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
                 <?php endif; ?>
-                
+
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2>Employees (<?php echo count($employees); ?>)</h2>
                     <?php if (hasPermission('hr_manager')): ?>
                         <button onclick="showAddModal()" class="btn btn-success">Add New Employee</button>
                     <?php endif; ?>
                 </div>
-                
+
                 <!-- Search and Filters -->
                 <div class="search-filters">
                     <form method="GET" action="">
@@ -470,10 +467,9 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                                     <option value="officer" <?php echo $type_filter === 'officer' ? 'selected' : ''; ?>>Officer</option>
                                     <option value="section_head" <?php echo $type_filter === 'section_head' ? 'selected' : ''; ?>>Section Head</option>
                                     <option value="manager" <?php echo $type_filter === 'manager' ? 'selected' : ''; ?>>Manager</option>
-                                    <option value="manager" <?php echo $type_filter === 'hr_manager' ? 'selected' : ''; ?>>Human Resource Manager</option>
                                     <option value="dept_head" <?php echo $type_filter === 'dept_head' ? 'selected' : ''; ?>>Department Head</option>
                                     <option value="managing_director" <?php echo $type_filter === 'managing_director' ? 'selected' : ''; ?>>Managing Director</option>
-                                    <option value="bod_chairman" <?php echo $type_filter === 'bod_chairman' ? 'selected' : ''; ?>>BOD Chairmann</option>
+                                    <option value="bod_chairman" <?php echo $type_filter === 'bod_chairman' ? 'selected' : ''; ?>>BOD Chairman</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -494,7 +490,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         </div>
                     </form>
                 </div>
-                
+
                 <!-- Employees Table -->
                 <div class="table-container">
                     <table class="table">
@@ -566,7 +562,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
             </div>
             <form method="POST" action="">
                 <input type="hidden" name="action" value="add">
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="employee_id">Employee ID</label>
@@ -577,7 +573,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="text" class="form-control" id="first_name" name="first_name" required>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="last_name">Last Name</label>
@@ -588,7 +584,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="text" class="form-control" id="national_id" name="national_id" required>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="email">Email</label>
@@ -599,7 +595,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="text" class="form-control" id="designation" name="designation" required placeholder="e.g. Software Engineer">
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="phone">Phone</label>
@@ -610,12 +606,12 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" required>
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="address">Address</label>
                     <textarea class="form-control" id="address" name="address" rows="3"></textarea>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="hire_date">Hire Date</label>
@@ -632,7 +628,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         </select>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="employee_type">Employee Type</label>
@@ -641,6 +637,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                             <option value="officer">Officer</option>
                             <option value="section_head">Section Head</option>
                             <option value="manager">Manager</option>
+                            <option value="hr_manager">Human Resource Manager</option>
                             <option value="dept_head">Department Head</option>
                             <option value="managing_director">Managing Director</option>
                             <option value="bod_chairman">BOD Chairman</option>
@@ -656,14 +653,14 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         </select>
                     </div>
                 </div>
-                
+
                 <div class="form-group" id="section_group">
                     <label for="section_id">Section</label>
                     <select class="form-control" id="section_id" name="section_id">
                         <option value="">Select Section</option>
                     </select>
                 </div>
-                
+
                 <div class="form-actions">
                     <button type="submit" class="btn btn-success">Add Employee</button>
                     <button type="button" class="btn btn-secondary" onclick="hideAddModal()">Cancel</button>
@@ -684,7 +681,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
             <form method="POST" action="">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" id="edit_id" name="id">
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="edit_employee_id">Employee ID</label>
@@ -695,7 +692,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="text" class="form-control" id="edit_first_name" name="first_name" required>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="edit_last_name">Last Name</label>
@@ -706,7 +703,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="text" class="form-control" id="edit_national_id" name="national_id" required>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="edit_email">Email</label>
@@ -717,7 +714,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="text" class="form-control" id="edit_designation" name="designation" required>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="edit_phone">Phone</label>
@@ -728,12 +725,12 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         <input type="date" class="form-control" id="edit_date_of_birth" name="date_of_birth" required>
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="edit_address">Address</label>
                     <textarea class="form-control" id="edit_address" name="address" rows="3"></textarea>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="edit_hire_date">Hire Date</label>
@@ -750,7 +747,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         </select>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="edit_employee_type">Employee Type</label>
@@ -774,7 +771,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         </select>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group" id="edit_section_group">
                         <label for="edit_section_id">Section</label>
@@ -783,7 +780,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="edit_employee_status">Status</label>
+<label for="edit_employee_status">Status</label>
                         <select class="form-control" id="edit_employee_status" name="employee_status" required>
                             <option value="">Select Status</option>
                             <option value="active">Active</option>
@@ -794,7 +791,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                         </select>
                     </div>
                 </div>
-                
+
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Update Employee</button>
                     <button type="button" class="btn btn-secondary" onclick="hideEditModal()">Cancel</button>
@@ -808,11 +805,11 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
         function showAddModal() {
             document.getElementById('addModal').style.display = 'block';
         }
-        
+
         function hideAddModal() {
             document.getElementById('addModal').style.display = 'none';
         }
-        
+
         function showEditModal(employee) {
             document.getElementById('edit_id').value = employee.id;
             document.getElementById('edit_employee_id').value = employee.employee_id;
@@ -829,28 +826,28 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
             document.getElementById('edit_employee_type').value = employee.employee_type;
             document.getElementById('edit_department_id').value = employee.department_id;
             document.getElementById('edit_employee_status').value = employee.employee_status;
-            
+
             // Update sections for selected department
             updateEditSections();
             setTimeout(() => {
                 document.getElementById('edit_section_id').value = employee.section_id;
             }, 100);
-            
+
             // Handle employee type visibility
             handleEditEmployeeTypeChange();
-            
+
             document.getElementById('editModal').style.display = 'block';
         }
-        
+
         function hideEditModal() {
             document.getElementById('editModal').style.display = 'none';
         }
-        
+
         function handleEmployeeTypeChange() {
             const employeeType = document.getElementById('employee_type').value;
             const departmentGroup = document.getElementById('department_group');
             const sectionGroup = document.getElementById('section_group');
-            
+
             if (employeeType === 'managing_director' || employeeType === 'bod_chairman') {
                 departmentGroup.style.display = 'none';
                 sectionGroup.style.display = 'none';
@@ -865,14 +862,14 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                 sectionGroup.style.display = 'block';
             }
         }
-        
+
         function updateSections() {
             const departmentId = document.getElementById('department_id').value;
             const sectionSelect = document.getElementById('section_id');
-            
+
             // Clear existing options
             sectionSelect.innerHTML = '<option value="">Select Section</option>';
-            
+
             if (departmentId) {
                 // Add sections for selected department
                 const sections = <?php echo json_encode($sections); ?>;
@@ -886,12 +883,12 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                 });
             }
         }
-        
+
         function handleEditEmployeeTypeChange() {
             const employeeType = document.getElementById('edit_employee_type').value;
             const departmentGroup = document.getElementById('edit_department_group');
             const sectionGroup = document.getElementById('edit_section_group');
-            
+
             if (employeeType === 'managing_director' || employeeType === 'bod_chairman') {
                 departmentGroup.style.display = 'none';
                 sectionGroup.style.display = 'none';
@@ -906,14 +903,14 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                 sectionGroup.style.display = 'block';
             }
         }
-        
+
         function updateEditSections() {
             const departmentId = document.getElementById('edit_department_id').value;
             const sectionSelect = document.getElementById('edit_section_id');
-            
+
             // Clear existing options
             sectionSelect.innerHTML = '<option value="">Select Section</option>';
-            
+
             if (departmentId) {
                 // Add sections for selected department
                 const sections = <?php echo json_encode($sections); ?>;
@@ -927,7 +924,7 @@ $applicationsQuery = "SELECT la.*, e.employee_id, e.first_name, e.last_name,
                 });
             }
         }
-        
+
         // Close modal when clicking outside of it
         window.onclick = function(event) {
             const addModal = document.getElementById('addModal');

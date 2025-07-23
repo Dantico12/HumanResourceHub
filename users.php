@@ -74,6 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $role = $_POST['role'];
             $phone = sanitizeInput($_POST['phone']);
             $address = sanitizeInput($_POST['address']);
+            $employee_id = sanitizeInput($_POST['employee_id']); // <-- add this line
             
             try {
                 // Check if email already exists
@@ -90,8 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $userId = $rolePrefix . '-' . $timestamp;
                     
                     $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $mysqli->prepare("INSERT INTO users (id, first_name, last_name, email, password, role, phone, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
-                    $stmt->bind_param("ssssssss", $userId, $first_name, $last_name, $email, $hashedPassword, $role, $phone, $address);
+                    $stmt = $mysqli->prepare("INSERT INTO users (id, first_name, last_name, email, password, role, phone, address, employee_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+                    $stmt->bind_param("ssssssssss", $userId, $first_name, $last_name, $email, $hashedPassword, $role, $phone, $address, $employee_id);
                     $stmt->execute();
                     redirectWithMessage('users.php', 'User created successfully!', 'success');
                 }
@@ -107,10 +108,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $phone = sanitizeInput($_POST['phone']);
             $address = sanitizeInput($_POST['address']);
             $password = $_POST['password'];
-            
+            $employee_id = sanitizeInput($_POST['employee_id']); // if you use employee_id
+
             try {
-                // Check if email exists for other users
-                $stmt = $mysqli->prepare("SELECT id FROM users WHERE email = ? AND employee_id != ?");
+                // Check if email exists for other users (exclude current user by id)
+                $stmt = $mysqli->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
                 $stmt->bind_param("ss", $email, $id);
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -120,12 +122,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($password)) {
                         // Update with password
                         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, password=?, role=?, phone=?, address=?, updated_at=NOW() WHERE employe_id=?");
-                        $stmt->bind_param("ssssssss", $first_name, $last_name, $email, $hashedPassword, $role, $phone, $address, $id);
+                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, password=?, role=?, phone=?, address=?, employee_id=?, updated_at=NOW() WHERE id=?");
+                        $stmt->bind_param("sssssssss", $first_name, $last_name, $email, $hashedPassword, $role, $phone, $address, $employee_id, $id);
                     } else {
                         // Update without password
-                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, role=?, phone=?, address=?, updated_at=NOW() WHERE employee_id=?");
-                        $stmt->bind_param("sssssss", $first_name, $last_name, $email, $role, $phone, $address, $id);
+                        $stmt = $mysqli->prepare("UPDATE users SET first_name=?, last_name=?, email=?, role=?, phone=?, address=?, employee_id=?, updated_at=NOW() WHERE id=?");
+                        $stmt->bind_param("ssssssss", $first_name, $last_name, $email, $role, $phone, $address, $employee_id, $id);
                     }
                     $stmt->execute();
                     redirectWithMessage('users.php', 'User updated successfully!', 'success');
@@ -137,10 +139,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $id = $_POST['id'];
             
             // Prevent deleting own account
-            if ($id == $userId) {
+            if ($id == $user['id']) {
                 $error = 'You cannot delete your own account.';
             } else {
-                $stmt = $mysqli->prepare("DELETE FROM users WHERE mployee_id = ?");
+                $stmt = $mysqli->prepare("DELETE FROM users WHERE id = ?");
                 $stmt->bind_param("s", $id);
                 if ($stmt->execute()) {
                     redirectWithMessage('users.php', 'User deleted successfully!', 'success');
@@ -247,8 +249,7 @@ $users = $result->fetch_all(MYSQLI_ASSOC);
                                     <td>
                                         <span class="badge <?php echo getRoleBadge($user_row['role']); ?>">
                                             <?php echo ucwords(str_replace('_', ' ', $user_row['role'])); ?>
-                                        </span>
-                                    </td>
+                                        </td>
                                     <td><?php echo htmlspecialchars($user_row['phone'] ?? 'N/A'); ?></td>
                                     <td>
                                         <span class="badge badge-success">Active</span>
@@ -321,6 +322,13 @@ $users = $result->fetch_all(MYSQLI_ASSOC);
                     </div>
                 </div>
                 
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="employee_id">Employee ID (link to employee)</label>
+                        <input type="text" class="form-control" id="employee_id" name="employee_id">
+                    </div>
+                </div>
+                
                 <div class="form-group">
                     <label for="address">Address</label>
                     <textarea class="form-control" id="address" name="address" rows="3"></textarea>
@@ -387,6 +395,13 @@ $users = $result->fetch_all(MYSQLI_ASSOC);
                     </div>
                 </div>
                 
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="edit_employee_id">Employee ID (link to employee)</label>
+                        <input type="text" class="form-control" id="edit_employee_id" name="employee_id" readonly>
+                    </div>
+                </div>
+                
                 <div class="form-group">
                     <label for="edit_address">Address</label>
                     <textarea class="form-control" id="edit_address" name="address" rows="3"></textarea>
@@ -396,6 +411,14 @@ $users = $result->fetch_all(MYSQLI_ASSOC);
                     <button type="submit" class="btn btn-primary">Update User</button>
                     <button type="button" class="btn btn-secondary" onclick="hideEditUserModal()">Cancel</button>
                 </div>
+                <?php if (isset($error)): ?>
+                    <div class="alert alert-danger" style="margin-top: 10px;"><?php echo htmlspecialchars($error); ?></div>
+                <?php endif; ?>
+                <?php $flash = getFlashMessage(); if ($flash): ?>
+                    <div class="alert alert-<?php echo $flash['type']; ?>" style="margin-top: 10px;">
+                        <?php echo htmlspecialchars($flash['message']); ?>
+                    </div>
+                <?php endif; ?>
             </form>
         </div>
     </div>
@@ -418,6 +441,7 @@ $users = $result->fetch_all(MYSQLI_ASSOC);
             document.getElementById('edit_phone').value = user.phone || '';
             document.getElementById('edit_address').value = user.address || '';
             document.getElementById('edit_password').value = '';
+            document.getElementById('edit_employee_id').value = user.employee_id || '';
             document.getElementById('editUserModal').style.display = 'block';
         }
         
@@ -476,3 +500,6 @@ function getRoleBadge($role) {
     }
 }
 ?>
+
+users.php
+Displaying users.php.
