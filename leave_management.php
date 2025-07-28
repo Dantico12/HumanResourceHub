@@ -340,6 +340,93 @@ if (isset($_GET['action'])) {
         header("Location: leave_management.php?tab=manage");
         exit();
     }
+
+    // Handle GET actions for department head approval/rejection
+    if ($action === 'dept_head_approve' && isset($_GET['id']) && hasPermission('dept_head')) {
+        $leaveId = (int)$_GET['id'];
+
+        try {
+            $conn->begin_transaction();
+
+            // Get application details
+            $stmt = $conn->prepare("SELECT * FROM leave_applications WHERE id = ?");
+            $stmt->bind_param("i", $leaveId);
+            $stmt->execute();
+            $application = $stmt->get_result()->fetch_assoc();
+
+            // Get current user's employee record
+            $userEmpQuery = "SELECT id FROM employees WHERE employee_id = (SELECT employee_id FROM users WHERE id = ?)";
+            $stmt = $conn->prepare($userEmpQuery);
+            $stmt->bind_param("s", $user['id']);
+            $stmt->execute();
+            $userEmpRecord = $stmt->get_result()->fetch_assoc();
+
+            if ($userEmpRecord && $application && $application['dept_head_emp_id'] == $userEmpRecord['id']) {
+                // Update application status
+                $stmt = $conn->prepare("UPDATE leave_applications SET dept_head_approved = 1, dept_head_approver_id = ? WHERE id = ?");
+                $stmt->bind_param("ii", $userEmpRecord['id'], $leaveId);
+                $stmt->execute();
+
+                $conn->commit();
+                $_SESSION['flash_message'] = "Leave application approved successfully!";
+                $_SESSION['flash_type'] = "success";
+            } else {
+                $conn->rollback();
+                $_SESSION['flash_message'] = "You are not authorized to approve this leave application.";
+                $_SESSION['flash_type'] = "danger";
+            }
+        } catch (Exception $e) {
+            $conn->rollback();
+            $_SESSION['flash_message'] = "Database error: " . $e->getMessage();
+            $_SESSION['flash_type'] = "danger";
+        }
+
+        header("Location: leave_management.php?tab=manage");
+        exit();
+    }
+
+    if ($action === 'dept_head_reject' && isset($_GET['id']) && hasPermission('dept_head')) {
+        $leaveId = (int)$_GET['id'];
+
+        try {
+            $conn->begin_transaction();
+
+            // Get application details
+            $stmt = $conn->prepare("SELECT * FROM leave_applications WHERE id = ?");
+            $stmt->bind_param("i", $leaveId);
+            $stmt->execute();
+            $application = $stmt->get_result()->fetch_assoc();
+
+            // Get current user's employee record
+           $userEmpQuery = "SELECT id FROM employees WHERE employee_id = (SELECT employee_id FROM users WHERE id = ?)";
+            $stmt = $conn->prepare($userEmpQuery);
+            $stmt->bind_param("s", $user['id']);
+            $stmt->execute();
+            $userEmployee = $stmt->get_result()->fetch_assoc();
+
+            if ($userEmployee && $application && $application['dept_head_emp_id'] == $userEmployee['id']) {
+                // Update application status
+                $stmt = $conn->prepare("UPDATE leave_applications SET dept_head_approved = 0, dept_head_approver_id = ? WHERE id = ?");
+                $stmt->bind_param("ii", $userEmployee['id'], $leaveId);
+                $stmt->execute();
+
+                $conn->commit();
+                $_SESSION['flash_message'] = "Leave application rejected!";
+                $_SESSION['flash_type'] = "warning";
+            } else {
+                $conn->rollback();
+                $_SESSION['flash_message'] = "You are not authorized to reject this leave application.";
+                $_SESSION['flash_type'] = "danger";
+            }
+        } catch (Exception $e) {
+            $conn->rollback();
+            $_SESSION['flash_message'] = "Database error: " . $e->getMessage();
+            $_SESSION['flash_type'] = "danger";
+        }
+
+        header("Location: leave_management.php?tab=manage");
+        exit();
+    }
 }
 
 // Fetch data for dropdowns and displays
@@ -587,7 +674,8 @@ try {
 
                     <?php if ($userEmployee): ?>
                     <form method="POST" action="">
-                    
+                        <input type="hidden" name="action" value="apply_leave">
+                        
                         <div class="form-grid">
                         <div class="form-group">
                             <label for="employee_id">Employee</label>
@@ -1171,99 +1259,3 @@ try {
 
 </body>
 </html>
-<?php
-//Get the leave_management_handler
-include 'leave_management_handler.php';
-
-// Handle GET actions for department head approval/rejection
-if (isset($_GET['action'])) {
-    $action = $_GET['action'];
-
-    if ($action === 'dept_head_approve' && isset($_GET['id']) && hasPermission('dept_head')) {
-        $leaveId = (int)$_GET['id'];
-
-        try {
-            $conn->begin_transaction();
-
-            // Get application details
-            $stmt = $conn->prepare("SELECT * FROM leave_applications WHERE id = ?");
-            $stmt->bind_param("i", $leaveId);
-            $stmt->execute();
-            $application = $stmt->get_result()->fetch_assoc();
-
-            // Get current user's employee record
-            $userEmpQuery = "SELECT id FROM employees WHERE employee_id = (SELECT employee_id FROM users WHERE id = ?)";
-            $stmt = $conn->prepare($userEmpQuery);
-            $stmt->bind_param("s", $user['id']);
-            $stmt->execute();
-            $userEmpRecord = $stmt->get_result()->fetch_assoc();
-
-            if ($userEmpRecord && $application && $application['dept_head_emp_id'] == $userEmpRecord['id']) {
-                // Update application status
-                $stmt = $conn->prepare("UPDATE leave_applications SET dept_head_approved = 1, dept_head_approver_id = ? WHERE id = ?");
-                $stmt->bind_param("ii", $userEmpRecord['id'], $leaveId);
-                $stmt->execute();
-
-                $conn->commit();
-                $_SESSION['flash_message'] = "Leave application approved successfully!";
-                $_SESSION['flash_type'] = "success";
-            } else {
-                $conn->rollback();
-                $_SESSION['flash_message'] = "You are not authorized to approve this leave application.";
-                $_SESSION['flash_type'] = "danger";
-            }
-        } catch (Exception $e) {
-            $conn->rollback();
-            $_SESSION['flash_message'] = "Database error: " . $e->getMessage();
-            $_SESSION['flash_type'] = "danger";
-        }
-
-        header("Location: leave_management.php?tab=manage");
-        exit();
-    }
-
-    if ($action === 'dept_head_reject' && isset($_GET['id']) && hasPermission('dept_head')) {
-        $leaveId = (int)$_GET['id'];
-
-        try {
-            $conn->begin_transaction();
-
-            // Get application details
-            $stmt = $conn->prepare("SELECT * FROM leave_applications WHERE id = ?");
-            $stmt->bind_param("i", $leaveId);
-            $stmt->execute();
-            $application = $stmt->get_result()->fetch_assoc();
-
-            // Get current user's employee record
-           $userEmpQuery = "SELECT id FROM employees WHERE employee_id = (SELECT employee_id FROM users WHERE id = ?)";
-            $stmt = $conn->prepare($userEmpQuery);
-            $stmt->bind_param("s", $user['id']);
-            $stmt->execute();
-            $userEmployee = $stmt->get_result()->fetch_assoc();
-
-            if ($userEmployee && $application && $application['dept_head_emp_id'] == $userEmployee['id']) {
-                // Update application status
-                $stmt = $conn->prepare("UPDATE leave_applications SET dept_head_approved = 0, dept_head_approver_id = ? WHERE id = ?");
-                $stmt->bind_param("ii", $userEmployee['id'], $leaveId);
-                $stmt->execute();
-
-                $conn->commit();
-                $_SESSION['flash_message'] = "Leave application rejected!";
-                $_SESSION['flash_type'] = "warning";
-            } else {
-                $conn->rollback();
-                $_SESSION['flash_message'] = "You are not authorized to reject this leave application.";
-                $_SESSION['flash_type'] = "danger";
-            }
-        } catch (Exception $e) {
-            $conn->rollback();
-            $_SESSION['flash_message'] = "Database error: " . $e->getMessage();
-            $_SESSION['flash_type'] = "danger";
-        }
-
-        header("Location: leave_management.php?tab=manage");
-        exit();
-    }
-}
-
-?>
